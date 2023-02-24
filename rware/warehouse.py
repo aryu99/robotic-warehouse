@@ -56,6 +56,7 @@ class RewardType(Enum):
     GLOBAL = 0
     INDIVIDUAL = 1
     TWO_STAGE = 2
+    COMPOSITIONAL = 3
 
 
 class ObserationType(Enum):
@@ -137,6 +138,9 @@ class Shelf(Entity):
     def __init__(self, x, y):
         Shelf.counter += 1
         super().__init__(Shelf.counter, x, y)
+
+    def __str__(self):
+        return f"Shelf {self.id} at ({self.x}, {self.y})"
 
     @property
     def collision_layers(self):

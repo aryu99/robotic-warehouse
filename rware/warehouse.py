@@ -176,6 +176,7 @@ class Warehouse(gym.Env):
         image_observation_directional: bool=True,
         normalised_coordinates: bool=False,
 
+        # params for compositional rl
         train_subcontroller: list = None, # if training mode off : [subcontroller, (target)], if training mode on : [subcontroller]
         training_mode: bool = False
     ):
@@ -635,7 +636,7 @@ class Warehouse(gym.Env):
                 elif self.train_subcontroller[0] == 1:
                     if self.reset_counter == 0:
                         assert obs_compositional[2] == 1, "Training UNLOAD_SHELF subcontroller but agent is not carrying a shelf"
-                    obs_compositional.write(self.store_coords[self.rand_targ_shelf][0], self.shelfs[self.rand_targ_req_shelf][1])
+                    obs_compositional.write(self.store_coords[0][0], self.shelfs[0][1])
                 elif self.train_subcontroller[0] == 2:
                     if self.reset_counter == 0:
                         assert obs_compositional[2] == 0, "Training GOTO_GOAL subcontroller but agent is not carrying a shelf"
@@ -734,24 +735,28 @@ class Warehouse(gym.Env):
             np.random.choice(self.shelfs, size=self.request_queue_size, replace=False)
         )
 
-        if self.training_mode == True and (self.train_subcontroller[0] == 1 or self.train_subcontroller[0] == 2):
-            for Agent in self.agents:
-                Agent.carrying_shelf = Shelf(0,0)
-
-        self._recalc_grid()
-
-        
-        # print("\n return length ", len(tuple([self._make_obs(agent) for agent in self.agents])))
-
+        # Handle target assignment for LOAD_SHELF and UNLOAD_SHELF subcontrollers
         if self.training_mode:
             if self.train_subcontroller[0] == 0: # Training LOAD_SHELF subcontroller, so require random requested shelf
                 self.rand_targ_req_shelf = np.random.randint(len(self.request_queue))
             if self.train_subcontroller[0] == 1: # Training UNLOAD_SHELF subcontroller, so require random shelf
                 self.store_coords = []
                 for shelf in self.shelfs:
-                    if shelf not in self.request_queue:
-                        self.store_coords.append(copy.deepcopy(shelf.x, shelf.y))
-                self.rand_targ_shelf = np.random.randint(len(self.store_coords))
+                    if shelf in self.request_queue:
+                        self.store_coords.append(copy.deepcopy((shelf.x, shelf.y)))
+                assert self.store_coords != [], "No requested shelfs in store_coords for UNLOAD_SHELF training"
+
+        # Handle agent instantiation for UNLOAD_SHELF and GOTO_GOAL subcontrollers
+        if self.training_mode == True and (self.train_subcontroller[0] == 1 or self.train_subcontroller[0] == 2):
+            for agent in self.agents:
+                agent.carrying_shelf = self.request_queue[0]
+                agent.carrying_shelf.x, agent.carrying_shelf.y = agent.x, agent.y
+
+
+        self._recalc_grid()
+
+        
+        # print("\n return length ", len(tuple([self._make_obs(agent) for agent in self.agents])))
 
         return tuple([self._make_obs(agent) for agent in self.agents])
         # for s in self.shelfs:

@@ -8,6 +8,7 @@ from rware.utils import MultiAgentActionSpace, MultiAgentObservationSpace
 
 from enum import Enum
 import numpy as np
+import copy
 
 from typing import List, Tuple, Optional, Dict
 
@@ -174,6 +175,9 @@ class Warehouse(gym.Env):
         ],
         image_observation_directional: bool=True,
         normalised_coordinates: bool=False,
+
+        train_subcontroller: list = None, # if training mode off : [subcontroller, (target)], if training mode on : [subcontroller]
+        training_mode: bool = False
     ):
         """The robotic warehouse environment
 
@@ -237,8 +241,8 @@ class Warehouse(gym.Env):
         :param normalised_coordinates: Specifies whether absolute coordinates should be normalised
             with respect to total warehouse size
         :type normalised_coordinates: bool
+        :param train_subcontroller: during compositional rl, during training mode, the subcontroller that is trained and during inference mode, it contains two lists of subcontrollers and relevant data (target)
         """
-
         self.goals: List[Tuple[int, int]] = []
 
         if not layout:
@@ -286,6 +290,16 @@ class Warehouse(gym.Env):
         # can flatten the obs vector
         if observation_type == ObserationType.FLATTENED:
             self._use_fast_obs()
+        
+        # ----------------------------------------------------
+        # compositional rl
+        self.train_subcontroller = train_subcontroller
+        self.training_mode = training_mode
+
+        if self.training_mode == True:
+            self.__setup_compositional_obs_space()
+        # ----------------------------------------------------
+        
 
         self.renderer = None
 
@@ -610,7 +624,25 @@ class Warehouse(gym.Env):
                     obs.write(
                         [1.0, int(self.shelfs[id_shelf - 1] in self.request_queue)]
                     )
-
+            
+            if self.training:
+                obs_compositional = _VectorWriter(5)
+                obs_compositional.write(obs[0], obs[1], obs[2])
+                if self.train_subcontroller[0] == 0:
+                    if self.reset_counter == 0:
+                        assert obs_compositional[2] == 0, "Training LOAD_SHELF subcontroller but agent is already carrying a shelf"
+                    obs_compositional.write(self.request_queue[self.rand_targ_req_shelf].x, self.request_queue[self.rand_targ_req_shelf].y)
+                elif self.train_subcontroller[0] == 1:
+                    if self.reset_counter == 0:
+                        assert obs_compositional[2] == 1, "Training UNLOAD_SHELF subcontroller but agent is not carrying a shelf"
+                    obs_compositional.write(self.store_coords[self.rand_targ_shelf][0], self.shelfs[self.rand_targ_req_shelf][1])
+                elif self.train_subcontroller[0] == 2:
+                    if self.reset_counter == 0:
+                        assert obs_compositional[2] == 0, "Training GOTO_GOAL subcontroller but agent is not carrying a shelf"
+                    obs_compositional.write(self.goals[0][0], self.goals[0][1])
+                return obs_compositional.vector
+            
+            self.reset_counter += 1
             return obs.vector
  
         # write dictionary observations
@@ -664,6 +696,8 @@ class Warehouse(gym.Env):
             self.grid[_LAYER_AGENTS, a.y, a.x] = a.id
 
     def reset(self):
+        self.reset_counter = 0
+
         Shelf.counter = 0
         Agent.counter = 0
         self._cur_inactive_steps = 0
@@ -696,11 +730,28 @@ class Warehouse(gym.Env):
             for y, x, dir_ in zip(*agent_locs, agent_dirs)
         ]
 
-        self._recalc_grid()
-
         self.request_queue = list(
             np.random.choice(self.shelfs, size=self.request_queue_size, replace=False)
         )
+
+        if self.training_mode == True and (self.train_subcontroller[0] == 1 or self.train_subcontroller[0] == 2):
+            for Agent in self.agents:
+                Agent.carrying_shelf = Shelf(0,0)
+
+        self._recalc_grid()
+
+        
+        # print("\n return length ", len(tuple([self._make_obs(agent) for agent in self.agents])))
+
+        if self.training_mode:
+            if self.train_subcontroller[0] == 0: # Training LOAD_SHELF subcontroller, so require random requested shelf
+                self.rand_targ_req_shelf = np.random.randint(len(self.request_queue))
+            if self.train_subcontroller[0] == 1: # Training UNLOAD_SHELF subcontroller, so require random shelf
+                self.store_coords = []
+                for shelf in self.shelfs:
+                    if shelf not in self.request_queue:
+                        self.store_coords.append(copy.deepcopy(shelf.x, shelf.y))
+                self.rand_targ_shelf = np.random.randint(len(self.store_coords))
 
         return tuple([self._make_obs(agent) for agent in self.agents])
         # for s in self.shelfs:

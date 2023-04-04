@@ -626,7 +626,7 @@ class Warehouse(gym.Env):
                         [1.0, int(self.shelfs[id_shelf - 1] in self.request_queue)]
                     )
             
-            if self.training:
+            if self.training_mode: # training mode, therefore giving randomly generated targets
                 obs_compositional = _VectorWriter(5)
                 obs_compositional.write(obs[0], obs[1], obs[2])
                 if self.train_subcontroller[0] == 0:
@@ -643,6 +643,23 @@ class Warehouse(gym.Env):
                     obs_compositional.write(self.goals[0][0], self.goals[0][1])
                 return obs_compositional.vector
             
+            elif self.training_mode == False and self.train_subcontroller != None:
+                obs_compositional = _VectorWriter(5)
+                obs_compositional.write(obs[0], obs[1], obs[2])
+                idx_subcontroller = agent.id - 1
+                if self.train_subcontroller[idx_subcontroller] == 0: # LOAD_SHELF
+                    obs_compositional.write(self.train_subcontroller[idx_subcontroller][1][0], self.train_subcontroller[idx_subcontroller][1][1])
+                elif self.train_subcontroller[idx_subcontroller] == 1: # UNLOAD_SHELF
+                    obs_compositional.write(self.train_subcontroller[idx_subcontroller][1][0], self.train_subcontroller[idx_subcontroller][1][1])
+                elif self.train_subcontroller[idx_subcontroller] == 2: # GOTO_GOAL
+                    obs_compositional.write(self.goals[0][0], self.goals[0][1])
+                return obs_compositional.vector
+
+            if self.training_mode == False and self.train_subcontroller != None:
+                self.reset_counter += 1
+                return obs.vector
+            
+            self.prediction_counter += 1 # TODO: reset this counter whenever new subcontroller gets activated during predicion
             self.reset_counter += 1
             return obs.vector
  
@@ -758,7 +775,15 @@ class Warehouse(gym.Env):
         
         # print("\n return length ", len(tuple([self._make_obs(agent) for agent in self.agents])))
 
-        return tuple([self._make_obs(agent) for agent in self.agents])
+        # Assertions to make sure that training and prediction mode are being used correctly
+        reset_obs = tuple([self._make_obs(agent) for agent in self.agents])
+        if self.training_mode:
+            assert len(reset_obs) == 1, "Training mode should only have one agent during training"
+        elif self.training_mode == False and len(self.train_subcontroller) > 1:
+            assert len(reset_obs) == len(self.train_subcontroller), "Prediction mode should have observation size correspoding to the specified number of agent subcontrollers"
+            
+
+        return reset_obs
         # for s in self.shelfs:
         #     self.grid[0, s.y, s.x] = 1
         # print(self.grid[0])
@@ -903,6 +928,11 @@ class Warehouse(gym.Env):
             dones = self.n_agents * [True]
         else:
             dones = self.n_agents * [False]
+        
+        if self.training_mode or self.train_subcontroller != None:
+            pass #TODO: Write code for reward and done for subcontroller training/predictions
+
+
 
         new_obs = tuple([self._make_obs(agent) for agent in self.agents])
         info = {}

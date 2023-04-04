@@ -929,10 +929,59 @@ class Warehouse(gym.Env):
         else:
             dones = self.n_agents * [False]
         
-        if self.training_mode or self.train_subcontroller != None:
-            pass #TODO: Write code for reward and done for subcontroller training/predictions
+        if self.training_mode: # Training mode
+            assert self.n_agents == 1, "Only single agent training is supported"
+            rewards = np.zeros(self.n_agents)
+            dones = self.n_agents * [False]
+            if self.train_subcontroller[0] == 0: # Rewards/done for LOAD_SHELF
+                # reward is inversely propotional to the absolute distance of the agent from the target
+                rewards -= np.abs(self.agents[0].x - self.request_queue[self.rand_targ_req_shelf].x) + np.abs(self.agents[0].y - self.request_queue[self.rand_targ_req_shelf].y)
+                if rewards[0] == 0:
+                    if agent.carrying_shelf != None:
+                        rewards += 10
+                        dones[0] = True
+            elif self.train_subcontroller[0] == 1: # Rewards/done for UNLOAD_SHELF
+                # reward is inversely propotional to the absolute distance of the agent from the target
+                rewards -= np.abs(self.agents[0].x - self.store_coords[0][0]) + np.abs(self.agents[0].y - self.shelfs[0][1])
+                if rewards[0] == 0:
+                    if agent.carrying_shelf == None:
+                        rewards += 10
+                        dones[0] = True
+            elif self.train_subcontroller[0] == 2: # Rewards/done for GOTO_GOAL:
+                # reward is inversely propotional to the absolute distance of the agent from the target
+                rewards -= np.abs(self.agents[0].x - self.goals[0][0]) + np.abs(self.agents[0].y - self.goals[0][1])
+                if rewards[0] == 0:
+                    dones[0] = True
 
-
+        elif self.training_mode == False and self.train_subcontroller != None: # Prediction mode
+            assert self.n_agents > 1, "Expected multiple agents for prediction mode"
+            rewards = np.zeros(self.n_agents)
+            dones = self.n_agents * [False]
+            idx = 0
+            for subcontroller in self.train_subcontroller:
+                if subcontroller[0] == 0: # LOAD_SHELF
+                    # reward is inversely propotional to the absolute distance of the agent from the target
+                    rewards[idx] -= np.abs(self.agents[idx].x - subcontroller[1][0]) + np.abs(self.agents[0].y - subcontroller[1][1])
+                    if rewards[idx] == 0:
+                        if agent.carrying_shelf != None:
+                            rewards[idx] += 10
+                            dones[idx] = True
+                elif subcontroller[0] == 1: # UNLOAD_SHELF
+                    # reward is inversely propotional to the absolute distance of the agent from the target
+                    rewards[idx] -= np.abs(self.agents[idx].x - subcontroller[1][0]) + np.abs(self.agents[0].y - subcontroller[1][1])
+                    if rewards[idx] == 0:
+                        if agent.carrying_shelf == None:
+                            rewards[idx] += 10
+                            dones[idx] = True
+                elif subcontroller[0] == 2: # GOTO_GOAL:
+                    # reward is inversely propotional to the absolute distance of the agent from the target
+                    rewards[idx] -= np.abs(self.agents[0].x - self.goals[0][0]) + np.abs(self.agents[0].y - self.goals[0][1])
+                    if rewards[idx] == 0:
+                        dones[idx] = True
+                else:
+                    raise ValueError("Invalid subcontroller type")
+                
+                idx += 1      
 
         new_obs = tuple([self._make_obs(agent) for agent in self.agents])
         info = {}

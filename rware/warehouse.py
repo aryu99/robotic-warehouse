@@ -296,9 +296,6 @@ class Warehouse(gym.Env):
         # compositional rl
         self.train_subcontroller = train_subcontroller
         self.training_mode = training_mode
-
-        if self.training_mode == True:
-            self.__setup_compositional_obs_space()
         # ----------------------------------------------------
         
 
@@ -659,7 +656,6 @@ class Warehouse(gym.Env):
                 self.reset_counter += 1
                 return obs.vector
             
-            self.prediction_counter += 1 # TODO: reset this counter whenever new subcontroller gets activated during predicion
             self.reset_counter += 1
             return obs.vector
  
@@ -779,7 +775,7 @@ class Warehouse(gym.Env):
         reset_obs = tuple([self._make_obs(agent) for agent in self.agents])
         if self.training_mode:
             assert len(reset_obs) == 1, "Training mode should only have one agent during training"
-        elif self.training_mode == False and len(self.train_subcontroller) > 1:
+        elif self.training_mode == False and self.train_subcontroller != None:
             assert len(reset_obs) == len(self.train_subcontroller), "Prediction mode should have observation size correspoding to the specified number of agent subcontrollers"
             
 

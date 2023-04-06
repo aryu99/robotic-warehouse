@@ -244,6 +244,9 @@ class Warehouse(gym.Env):
         :type normalised_coordinates: bool
         :param train_subcontroller: during compositional rl, during training mode, the subcontroller that is trained and during inference mode, it contains two lists of subcontrollers and relevant data (target)
         """
+        self.train_subcontroller = train_subcontroller
+        self.training_mode = training_mode
+
         self.goals: List[Tuple[int, int]] = []
 
         if not layout:
@@ -271,6 +274,14 @@ class Warehouse(gym.Env):
             sa_action_space = spaces.MultiDiscrete(sa_action_space)
         self.action_space = spaces.Tuple(tuple(n_agents * [sa_action_space]))
 
+        # ----------------------------------------------------
+        # compositional rl
+        if self.training_mode:
+            self.action_space = sa_action_space
+        # ----------------------------------------------------
+        
+        
+
         self.request_queue_size = request_queue_size
         self.request_queue = []
 
@@ -292,11 +303,7 @@ class Warehouse(gym.Env):
         if observation_type == ObserationType.FLATTENED:
             self._use_fast_obs()
         
-        # ----------------------------------------------------
-        # compositional rl
-        self.train_subcontroller = train_subcontroller
-        self.training_mode = training_mode
-        # ----------------------------------------------------
+        
         
 
         self.renderer = None
@@ -389,6 +396,7 @@ class Warehouse(gym.Env):
             tuple([spaces.Box(min_obs, max_obs, dtype=np.float32)] * self.n_agents)
         )
 
+
     def _use_slow_obs(self):
         self.fast_obs = False
 
@@ -469,21 +477,43 @@ class Warehouse(gym.Env):
         ma_spaces = []
         for sa_obs in self.observation_space:
             flatdim = spaces.flatdim(sa_obs)
-            ma_spaces += [
-                spaces.Box(
+            if self.train_subcontroller != None:
+                flatdim = 5
+            if self.training_mode:
+                ma_spaces = spaces.Box(
                     low=-float("inf"),
                     high=float("inf"),
                     shape=(flatdim,),
                     dtype=np.float32,
                 )
-            ]
+            
+            
+            else:
+                ma_spaces += [
+                    spaces.Box(
+                        low=-float("inf"),
+                        high=float("inf"),
+                        shape=(flatdim,),
+                        dtype=np.float32,
+                    )
+                ]
 
-        self.observation_space = spaces.Tuple(tuple(ma_spaces))
+        if not self.training_mode:
+            self.observation_space = spaces.Tuple(tuple(ma_spaces))
+        else:
+            self.observation_space = ma_spaces
 
     def _is_highway(self, x: int, y: int) -> bool:
         return self.highways[y, x]
 
     def _make_obs(self, agent):
+        '''
+        Make observation for agent
+        :param agent (Agent): agent to make observation for
+        :return : observation (conventionally in a vector format)
+
+        Note: this function observation for one single agent at a time.
+        '''
         if self.image_obs:
             # write image observations
             if agent.id == 1:
@@ -587,8 +617,55 @@ class Warehouse(gym.Env):
         agents = padded_agents[min_y:max_y, min_x:max_x].reshape(-1)
         shelfs = padded_shelfs[min_y:max_y, min_x:max_x].reshape(-1)
 
+        if self.training_mode: # training mode, therefore giving randomly generated targets
+            if self.normalised_coordinates:
+                agent_x = agent.x / (self.grid_size[1] - 1)
+                agent_y = agent.y / (self.grid_size[0] - 1)
+            else:
+                agent_x = agent.x
+                agent_y = agent.y
+
+            obs_compositional = _VectorWriter(5)
+            obs_compositional.write([agent_x, agent_y, int(agent.carrying_shelf is not None)])
+            if self.train_subcontroller[0] == 0:
+                if self.reset_counter == 0:
+                    self.reset_counter += 1
+                    assert obs_compositional.vector[2] == 0, "Training LOAD_SHELF subcontroller but agent is already carrying a shelf"
+                obs_compositional.write([self.request_queue[self.rand_targ_req_shelf].x, self.request_queue[self.rand_targ_req_shelf].y])
+            elif self.train_subcontroller[0] == 1:
+                if self.reset_counter == 0:
+                    self.reset_counter += 1
+                    assert obs_compositional.vector[2] == 1, "Training UNLOAD_SHELF subcontroller but agent is not carrying a shelf"
+                obs_compositional.write([self.store_coords[0][0], self.shelfs[0][1]])
+            elif self.train_subcontroller[0] == 2:
+                if self.reset_counter == 0:
+                    self.reset_counter += 1
+                    assert obs_compositional.vector[2] == 0, "Training GOTO_GOAL subcontroller but agent is not carrying a shelf"
+                obs_compositional.write([self.goals[0][0], self.goals[0][1]])
+            return obs_compositional.vector
+        
+        elif self.training_mode == False and self.train_subcontroller != None:
+            if self.normalised_coordinates:
+                agent_x = agent.x / (self.grid_size[1] - 1)
+                agent_y = agent.y / (self.grid_size[0] - 1)
+            else:
+                agent_x = agent.x
+                agent_y = agent.y
+            obs_compositional = _VectorWriter(5)
+            obs_compositional.write([agent_x, agent_y, int(agent.carrying_shelf is not None)])
+            idx_subcontroller = agent.id - 1
+            if self.train_subcontroller[idx_subcontroller] == 0: # LOAD_SHELF
+                obs_compositional.write([self.train_subcontroller[idx_subcontroller][1][0], self.train_subcontroller[idx_subcontroller][1][1]])
+            elif self.train_subcontroller[idx_subcontroller] == 1: # UNLOAD_SHELF
+                obs_compositional.write([self.train_subcontroller[idx_subcontroller][1][0], self.train_subcontroller[idx_subcontroller][1][1]])
+            elif self.train_subcontroller[idx_subcontroller] == 2: # GOTO_GOAL
+                obs_compositional.write([self.goals[0][0], self.goals[0][1]])
+            return obs_compositional.vector
+
         if self.fast_obs:
             # write flattened observations
+            # print("\n Observation Space: {} \n".format(self.observation_space))
+            
             obs = _VectorWriter(self.observation_space[agent.id - 1].shape[0])
 
             if self.normalised_coordinates:
@@ -622,41 +699,7 @@ class Warehouse(gym.Env):
                     obs.write(
                         [1.0, int(self.shelfs[id_shelf - 1] in self.request_queue)]
                     )
-            
-            if self.training_mode: # training mode, therefore giving randomly generated targets
-                obs_compositional = _VectorWriter(5)
-                obs_compositional.write(obs[0], obs[1], obs[2])
-                if self.train_subcontroller[0] == 0:
-                    if self.reset_counter == 0:
-                        assert obs_compositional[2] == 0, "Training LOAD_SHELF subcontroller but agent is already carrying a shelf"
-                    obs_compositional.write(self.request_queue[self.rand_targ_req_shelf].x, self.request_queue[self.rand_targ_req_shelf].y)
-                elif self.train_subcontroller[0] == 1:
-                    if self.reset_counter == 0:
-                        assert obs_compositional[2] == 1, "Training UNLOAD_SHELF subcontroller but agent is not carrying a shelf"
-                    obs_compositional.write(self.store_coords[0][0], self.shelfs[0][1])
-                elif self.train_subcontroller[0] == 2:
-                    if self.reset_counter == 0:
-                        assert obs_compositional[2] == 0, "Training GOTO_GOAL subcontroller but agent is not carrying a shelf"
-                    obs_compositional.write(self.goals[0][0], self.goals[0][1])
-                return obs_compositional.vector
-            
-            elif self.training_mode == False and self.train_subcontroller != None:
-                obs_compositional = _VectorWriter(5)
-                obs_compositional.write(obs[0], obs[1], obs[2])
-                idx_subcontroller = agent.id - 1
-                if self.train_subcontroller[idx_subcontroller] == 0: # LOAD_SHELF
-                    obs_compositional.write(self.train_subcontroller[idx_subcontroller][1][0], self.train_subcontroller[idx_subcontroller][1][1])
-                elif self.train_subcontroller[idx_subcontroller] == 1: # UNLOAD_SHELF
-                    obs_compositional.write(self.train_subcontroller[idx_subcontroller][1][0], self.train_subcontroller[idx_subcontroller][1][1])
-                elif self.train_subcontroller[idx_subcontroller] == 2: # GOTO_GOAL
-                    obs_compositional.write(self.goals[0][0], self.goals[0][1])
-                return obs_compositional.vector
 
-            if self.training_mode == False and self.train_subcontroller != None:
-                self.reset_counter += 1
-                return obs.vector
-            
-            self.reset_counter += 1
             return obs.vector
  
         # write dictionary observations
@@ -772,13 +815,15 @@ class Warehouse(gym.Env):
         # print("\n return length ", len(tuple([self._make_obs(agent) for agent in self.agents])))
 
         # Assertions to make sure that training and prediction mode are being used correctly
-        reset_obs = tuple([self._make_obs(agent) for agent in self.agents])
+        reset_obs = tuple([self._make_obs(agent) for agent in self.agents]) # ([Agent_1_obs], [Agent_2_obs], [Agent_3_obs]....)
         if self.training_mode:
             assert len(reset_obs) == 1, "Training mode should only have one agent during training"
         elif self.training_mode == False and self.train_subcontroller != None:
             assert len(reset_obs) == len(self.train_subcontroller), "Prediction mode should have observation size correspoding to the specified number of agent subcontrollers"
             
-
+        # print("\n ---reset_obs: ", reset_obs)
+        if self.training_mode:
+            return reset_obs[0]
         return reset_obs
         # for s in self.shelfs:
         #     self.grid[0, s.y, s.x] = 1
@@ -787,6 +832,21 @@ class Warehouse(gym.Env):
     def step(
         self, actions: List[Action]
     ) -> Tuple[List[np.ndarray], List[float], List[bool], Dict]:
+        '''
+        actions: list of actions for each agent
+        
+        returns:
+            obs: list of observations for each agent
+            rewards: list of rewards for each agent
+            dones: list of done flags for each agent
+            info: dict with additional info
+            
+        Note: Handles all agents together
+        '''
+        # print("\n in step printing Actions: {}".format(actions))   
+        # print("\n action space: {}".format(self.action_space))
+        # print("\n Agents: {}".format(self.agents))
+        actions = [actions]
         assert len(actions) == len(self.agents)
 
         for agent, action in zip(self.agents, actions):
@@ -979,9 +1039,13 @@ class Warehouse(gym.Env):
                 
                 idx += 1      
 
-        new_obs = tuple([self._make_obs(agent) for agent in self.agents])
+        new_obs = tuple([self._make_obs(agent) for agent in self.agents]) # ([Agent_1_obs], [Agent_2_obs], [Agent_3_obs]....)
+        rewards = list(rewards)
         info = {}
-        return new_obs, list(rewards), dones, info
+        if self.training_mode:
+            new_obs = new_obs[0]
+            rewards = rewards[0]
+        return new_obs, rewards, dones, info
 
     def render(self, mode="human"):
         if not self.renderer:

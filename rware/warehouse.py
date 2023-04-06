@@ -636,11 +636,11 @@ class Warehouse(gym.Env):
                 if self.reset_counter == 0:
                     self.reset_counter += 1
                     assert obs_compositional.vector[2] == 1, "Training UNLOAD_SHELF subcontroller but agent is not carrying a shelf"
-                obs_compositional.write([self.store_coords[0][0], self.shelfs[0][1]])
+                obs_compositional.write([self.store_coords[0][0], self.store_coords[0][1]])
             elif self.train_subcontroller[0] == 2:
                 if self.reset_counter == 0:
                     self.reset_counter += 1
-                    assert obs_compositional.vector[2] == 0, "Training GOTO_GOAL subcontroller but agent is not carrying a shelf"
+                    assert obs_compositional.vector[2] == 1, "Training GOTO_GOAL subcontroller but agent is not carrying a shelf"
                 obs_compositional.write([self.goals[0][0], self.goals[0][1]])
             return obs_compositional.vector
         
@@ -791,7 +791,7 @@ class Warehouse(gym.Env):
             np.random.choice(self.shelfs, size=self.request_queue_size, replace=False)
         )
 
-        # Handle target assignment for LOAD_SHELF and UNLOAD_SHELF subcontrollers
+        # Handle target assignment for LOAD_SHELF and UNLOAD_SHELF subcontrollers during training
         if self.training_mode:
             if self.train_subcontroller[0] == 0: # Training LOAD_SHELF subcontroller, so require random requested shelf
                 self.rand_targ_req_shelf = np.random.randint(len(self.request_queue))
@@ -801,6 +801,7 @@ class Warehouse(gym.Env):
                     if shelf in self.request_queue:
                         self.store_coords.append(copy.deepcopy((shelf.x, shelf.y)))
                 assert self.store_coords != [], "No requested shelfs in store_coords for UNLOAD_SHELF training"
+                assert len(self.store_coords) == 1, "store_coords should only have one element for UNLOAD_SHELF training"
 
         # Handle agent instantiation for UNLOAD_SHELF and GOTO_GOAL subcontrollers
         if self.training_mode == True and (self.train_subcontroller[0] == 1 or self.train_subcontroller[0] == 2):
@@ -998,7 +999,7 @@ class Warehouse(gym.Env):
                         dones[0] = True
             elif self.train_subcontroller[0] == 1: # Rewards/done for UNLOAD_SHELF
                 # reward is inversely propotional to the absolute distance of the agent from the target
-                rewards -= np.abs(self.agents[0].x - self.store_coords[0][0]) + np.abs(self.agents[0].y - self.shelfs[0][1])
+                rewards -= np.abs(self.agents[0].x - self.store_coords[0][0]) + np.abs(self.agents[0].y - self.store_coords[0][1])
                 if rewards[0] == 0:
                     if agent.carrying_shelf == None:
                         rewards += 10

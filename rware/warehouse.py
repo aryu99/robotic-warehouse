@@ -181,13 +181,11 @@ class Warehouse(gym.Env):
         training_mode: bool = False
     ):
         """The robotic warehouse environment
-
         Creates a grid world where multiple agents (robots)
         are supposed to collect shelfs, bring them to a goal
         and then return them.
         .. note:
             The grid looks like this:
-
             shelf
             columns
                 vv
@@ -201,17 +199,13 @@ class Warehouse(gym.Env):
             -XX----XX-   </
             ----------
             ----GG----
-
             G: is the goal positions where agents are rewarded if
             they bring the correct shelfs.
-
             The final grid size will be
             height: (column_height + 1) * shelf_rows + 2
             width: (2 + 1) * shelf_columns + 1
-
             The bottom-middle column will be removed to allow for
             robot queuing next to the goal locations
-
         :param shelf_columns: Number of columns in the warehouse
         :type shelf_columns: int
         :param column_height: Column height in the warehouse
@@ -478,13 +472,13 @@ class Warehouse(gym.Env):
         for sa_obs in self.observation_space:
             flatdim = spaces.flatdim(sa_obs)
             if self.train_subcontroller != None:
-                flatdim = 5
+                flatdim = 9
             if self.training_mode:
                 ma_spaces = spaces.Box(
-                    low=-float("inf"),
-                    high=float("inf"),
+                    low=np.array([0,0,0,0,0,0,0,0,0]),
+                    high=np.array([self.grid_size[0], self.grid_size[1], 1, 1, 1, 1, 1, 1, self.grid_size[1]]),
                     shape=(flatdim,),
-                    dtype=np.float32,
+                    dtype=np.int8,
                 )
             
             
@@ -511,7 +505,6 @@ class Warehouse(gym.Env):
         Make observation for agent
         :param agent (Agent): agent to make observation for
         :return : observation (conventionally in a vector format)
-
         Note: this function observation for one single agent at a time.
         '''
         if self.image_obs:
@@ -625,8 +618,11 @@ class Warehouse(gym.Env):
                 agent_x = agent.x
                 agent_y = agent.y
 
-            obs_compositional = _VectorWriter(5)
+            obs_compositional = _VectorWriter(9)
             obs_compositional.write([agent_x, agent_y, int(agent.carrying_shelf is not None)])
+            direction = np.zeros(4)
+            direction[agent.dir.value] = 1.0
+            obs_compositional.write(direction)
             if self.train_subcontroller[0] == 0:
                 if self.reset_counter == 0:
                     self.reset_counter += 1
@@ -651,8 +647,11 @@ class Warehouse(gym.Env):
             else:
                 agent_x = agent.x
                 agent_y = agent.y
-            obs_compositional = _VectorWriter(5)
+            obs_compositional = _VectorWriter(9)
             obs_compositional.write([agent_x, agent_y, int(agent.carrying_shelf is not None)])
+            direction = np.zeros(4)
+            direction[agent.dir.value] = 1.0
+            obs_compositional.write(direction)
             idx_subcontroller = agent.id - 1
             if self.train_subcontroller[idx_subcontroller] == 0: # LOAD_SHELF
                 obs_compositional.write([self.train_subcontroller[idx_subcontroller][1][0], self.train_subcontroller[idx_subcontroller][1][1]])
@@ -989,13 +988,13 @@ class Warehouse(gym.Env):
         if self.training_mode: # Training mode
             assert self.n_agents == 1, "Only single agent training is supported"
             rewards = np.zeros(self.n_agents)
-            dones = self.n_agents * [False]
+            # dones = self.n_agents * [False]
             if self.train_subcontroller[0] == 0: # Rewards/done for LOAD_SHELF
                 # reward is inversely propotional to the absolute distance of the agent from the target
                 rewards -= np.abs(self.agents[0].x - self.request_queue[self.rand_targ_req_shelf].x) + np.abs(self.agents[0].y - self.request_queue[self.rand_targ_req_shelf].y)
                 if rewards[0] == 0:
                     if agent.carrying_shelf != None:
-                        rewards += 10
+                        rewards += 5
                         dones[0] = True
             elif self.train_subcontroller[0] == 1: # Rewards/done for UNLOAD_SHELF
                 # reward is inversely propotional to the absolute distance of the agent from the target
@@ -1013,7 +1012,7 @@ class Warehouse(gym.Env):
         elif self.training_mode == False and self.train_subcontroller != None: # Prediction mode
             assert self.n_agents > 1, "Expected multiple agents for prediction mode"
             rewards = np.zeros(self.n_agents)
-            dones = self.n_agents * [False]
+            # dones = self.n_agents * [False]
             idx = 0
             for subcontroller in self.train_subcontroller:
                 if subcontroller[0] == 0: # LOAD_SHELF
@@ -1021,7 +1020,7 @@ class Warehouse(gym.Env):
                     rewards[idx] -= np.abs(self.agents[idx].x - subcontroller[1][0]) + np.abs(self.agents[0].y - subcontroller[1][1])
                     if rewards[idx] == 0:
                         if agent.carrying_shelf != None:
-                            rewards[idx] += 10
+                            rewards[idx] += 5
                             dones[idx] = True
                 elif subcontroller[0] == 1: # UNLOAD_SHELF
                     # reward is inversely propotional to the absolute distance of the agent from the target
@@ -1046,6 +1045,7 @@ class Warehouse(gym.Env):
         if self.training_mode:
             new_obs = new_obs[0]
             rewards = rewards[0]
+            dones = dones[0]
         return new_obs, rewards, dones, info
 
     def render(self, mode="human"):

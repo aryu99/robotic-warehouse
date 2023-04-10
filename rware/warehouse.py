@@ -1001,7 +1001,7 @@ class Warehouse(gym.Env):
                 rewards -= np.abs(self.agents[0].x - self.store_coords[0][0]) + np.abs(self.agents[0].y - self.store_coords[0][1])
                 if rewards[0] == 0:
                     if agent.carrying_shelf == None:
-                        rewards += 10
+                        rewards += 5
                         dones[0] = True
             elif self.train_subcontroller[0] == 2: # Rewards/done for GOTO_GOAL:
                 # reward is inversely propotional to the absolute distance of the agent from the target
@@ -1027,7 +1027,7 @@ class Warehouse(gym.Env):
                     rewards[idx] -= np.abs(self.agents[idx].x - subcontroller[1][0]) + np.abs(self.agents[0].y - subcontroller[1][1])
                     if rewards[idx] == 0:
                         if agent.carrying_shelf == None:
-                            rewards[idx] += 10
+                            rewards[idx] += 5
                             dones[idx] = True
                 elif subcontroller[0] == 2: # GOTO_GOAL:
                     # reward is inversely propotional to the absolute distance of the agent from the target

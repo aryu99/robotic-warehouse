@@ -653,11 +653,11 @@ class Warehouse(gym.Env):
             direction[agent.dir.value] = 1.0
             obs_compositional.write(direction)
             idx_subcontroller = agent.id - 1
-            if self.train_subcontroller[idx_subcontroller] == 0: # LOAD_SHELF
+            if self.train_subcontroller[idx_subcontroller][0] == 0: # LOAD_SHELF
                 obs_compositional.write([self.train_subcontroller[idx_subcontroller][1][0], self.train_subcontroller[idx_subcontroller][1][1]])
-            elif self.train_subcontroller[idx_subcontroller] == 1: # UNLOAD_SHELF
+            elif self.train_subcontroller[idx_subcontroller][0] == 1: # UNLOAD_SHELF
                 obs_compositional.write([self.train_subcontroller[idx_subcontroller][1][0], self.train_subcontroller[idx_subcontroller][1][1]])
-            elif self.train_subcontroller[idx_subcontroller] == 2: # GOTO_GOAL
+            elif self.train_subcontroller[idx_subcontroller][0] == 2: # GOTO_GOAL
                 obs_compositional.write([self.goals[0][0], self.goals[0][1]])
             return obs_compositional.vector
 

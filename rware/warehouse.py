@@ -483,13 +483,14 @@ class Warehouse(gym.Env):
             
             
             else:
+                flatdim = 9
                 ma_spaces += [
                     spaces.Box(
-                        low=-float("inf"),
-                        high=float("inf"),
-                        shape=(flatdim,),
-                        dtype=np.float32,
-                    )
+                    low=np.array([0,0,0,0,0,0,0,0,0]),
+                    high=np.array([self.grid_size[0], self.grid_size[1], 1, 1, 1, 1, 1, 1, self.grid_size[1]]),
+                    shape=(flatdim,),
+                    dtype=np.int8,
+                )
                 ]
 
         if not self.training_mode:
